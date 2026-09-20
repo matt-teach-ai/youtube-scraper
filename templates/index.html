@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Scraper</title>
+    <!-- Tailwind CSS cez CDN pre rýchle a moderné stylovanie -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800 font-sans">
+    <div class="max-w-4xl mx-auto px-4 py-12">
+        <h1 class="text-3xl font-bold mb-8 text-center text-red-600">YouTube Channel Scraper</h1>
+        
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <label for="channel-url" class="block text-sm font-medium text-gray-700 mb-2">URL adresa YouTube kanála</label>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="url" id="channel-url" placeholder="Napr: https://www.youtube.com/@nazov_kanala" 
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500">
+                <button id="crawl-btn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-md transition duration-200">
+                    Crawl (Skenovať)
+                </button>
+            </div>
+            <p id="status-msg" class="text-sm mt-3 text-gray-600 hidden">Pripravené...</p>
+            
+            <!-- Progress Bar Container -->
+            <div id="progress-container" class="w-full bg-gray-200 rounded-full h-2.5 mt-4 hidden">
+                <div id="progress-bar" class="bg-red-600 h-2.5 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+            </div>
+            <!-- Timer / Progress Text -->
+            <p id="progress-text" class="text-xs text-gray-500 mt-1 hidden text-right">0%</p>
+        </div>
+
+        <div id="results-container" class="bg-white p-6 rounded-lg shadow-md hidden">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">Nájdené videá (<span id="video-count">0</span>)</h2>
+                <button id="copy-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md transition duration-200 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                        <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                    </svg>
+                    Kopírovať zoznam odkazov
+                </button>
+            </div>
+            <textarea id="results-area" readonly class="w-full h-96 p-4 border border-gray-300 rounded-md bg-gray-50 focus:outline-none font-mono text-sm whitespace-pre"></textarea>
+        </div>
+    </div>
+
+    <script>
+        const crawlBtn = document.getElementById('crawl-btn');
+        const channelUrlInput = document.getElementById('channel-url');
+        const statusMsg = document.getElementById('status-msg');
+        const resultsContainer = document.getElementById('results-container');
+        const resultsArea = document.getElementById('results-area');
+        const videoCount = document.getElementById('video-count');
+        const copyBtn = document.getElementById('copy-btn');
+
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+
+        let progressInterval;
+
+        crawlBtn.addEventListener('click', async () => {
+            const url = channelUrlInput.value.trim();
+            if (!url) {
+                alert('Prosím zadaj URL adresu YouTube kanála.');
+                return;
+            }
+
+            // Nastavenie UI počas načítavania
+            crawlBtn.disabled = true;
+            crawlBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            crawlBtn.textContent = 'Skenujem...';
+            
+            statusMsg.textContent = 'Prebieha hĺbkové skenovanie videí z kanála. Odhadovaný čas: 5 až 15 sekúnd...';
+            statusMsg.classList.remove('hidden', 'text-red-500', 'text-green-600', 'text-orange-500');
+            statusMsg.classList.add('text-blue-500');
+            
+            resultsContainer.classList.add('hidden');
+            progressContainer.classList.remove('hidden');
+            progressText.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
+
+            // Spustenie simulovaného progress baru, ktorý sa pomaly blíži k 95%
+            let currentProgress = 0;
+            let timeElapsed = 0;
+            
+            // Interval beží každých 200ms
+            progressInterval = setInterval(() => {
+                timeElapsed += 0.2;
+                
+                // Matematická funkcia, ktorá spomaľuje rast čím je bližšie k 95%
+                if (currentProgress < 85) {
+                    currentProgress += (85 - currentProgress) * 0.05;
+                } else if (currentProgress < 95) {
+                    currentProgress += 0.1;
+                }
+                
+                progressBar.style.width = `${currentProgress}%`;
+                progressText.textContent = `${Math.round(currentProgress)}% (čas: ${Math.round(timeElapsed)}s)`;
+            }, 200);
+
+            try {
+                const response = await fetch('/api/crawl', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+
+                const data = await response.json();
+                
+                // Po dokončení requestu presunieme progress okamžite na 100%
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                progressText.textContent = `100% (hotovo za ${Math.round(timeElapsed)}s)`;
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Nastala chyba pri skenovaní kanála.');
+                }
+
+                if (data.videos && data.videos.length > 0) {
+                    // Aktualizujeme UI s výsledkami
+                    resultsArea.value = data.videos.join('\n');
+                    videoCount.textContent = data.videos.length;
+                    resultsContainer.classList.remove('hidden');
+                    
+                    statusMsg.textContent = 'Skenovanie bolo úspešne dokončené.';
+                    statusMsg.classList.replace('text-blue-500', 'text-green-600');
+                } else {
+                    statusMsg.textContent = 'Na zadanej adrese neboli nájdené žiadne videá.';
+                    statusMsg.classList.replace('text-blue-500', 'text-orange-500');
+                }
+
+            } catch (error) {
+                clearInterval(progressInterval);
+                progressBar.style.backgroundColor = '#ef4444'; // Red na chybu
+                statusMsg.textContent = `Chyba: ${error.message}`;
+                statusMsg.classList.replace('text-blue-500', 'text-red-500');
+            } finally {
+                // Obnovenie UI po dokončení
+                crawlBtn.disabled = false;
+                crawlBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                crawlBtn.textContent = 'Crawl (Skenovať)';
+                
+                // Skrytie progress baru po 2 sekundách
+                setTimeout(() => {
+                    progressContainer.classList.add('hidden');
+                    progressText.classList.add('hidden');
+                    progressBar.style.backgroundColor = ''; // Reset farby
+                }, 2000);
+            }
+        });
+
+        // Funkcia pre skopírovanie výsledkov do medzipamäte (clipboard)
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(resultsArea.value);
+                
+                // Vizuálna odozva po úspešnom skopírovaní
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                    </svg>
+                    Skopírované!
+                `;
+                copyBtn.classList.replace('bg-blue-600', 'bg-green-600');
+                copyBtn.classList.replace('hover:bg-blue-700', 'hover:bg-green-700');
+                
+                // Vrátenie do pôvodného stavu po 2 sekundách
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                    copyBtn.classList.replace('bg-green-600', 'bg-blue-600');
+                    copyBtn.classList.replace('hover:bg-green-700', 'hover:bg-blue-700');
+                }, 2000);
+            } catch (err) {
+                alert('Nepodarilo sa skopírovať text. Prosím, skopírujte ho manuálne.');
+            }
+        });
+    </script>
+</body>
+</html>
